@@ -32,13 +32,18 @@ export class AnthropicProvider implements AIProvider {
   private client: Anthropic;
   private model: string;
 
-  constructor() {
-    const apiKey = process.env.AI_API_KEY;
+  constructor(opts?: { apiKey?: string; model?: string }) {
+    // Provider-specific env vars take priority so this can run alongside
+    // another provider under AI_PROVIDER=fallback (see fallback-provider.ts)
+    // without both providers fighting over one generic AI_API_KEY/AI_MODEL.
+    const apiKey = opts?.apiKey ?? process.env.ANTHROPIC_API_KEY ?? process.env.AI_API_KEY;
     if (!apiKey) {
-      throw new Error("AI_API_KEY is required when AI_PROVIDER=anthropic.");
+      throw new Error(
+        "ANTHROPIC_API_KEY (or AI_API_KEY) is required when AI_PROVIDER=anthropic or anthropic is in AI_FALLBACK_ORDER.",
+      );
     }
     this.client = new Anthropic({ apiKey });
-    this.model = process.env.AI_MODEL ?? "claude-sonnet-4-5-20250929";
+    this.model = opts?.model ?? process.env.ANTHROPIC_MODEL ?? process.env.AI_MODEL ?? "claude-sonnet-4-5-20250929";
   }
 
   async generateStructured(params: GenerateStructuredParams): Promise<GenerateStructuredResult> {

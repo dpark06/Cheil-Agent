@@ -14,13 +14,18 @@ export class OpenAIProvider implements AIProvider {
   private client: OpenAI;
   private model: string;
 
-  constructor() {
-    const apiKey = process.env.AI_API_KEY;
+  constructor(opts?: { apiKey?: string; model?: string }) {
+    // Provider-specific env vars take priority so this can run alongside
+    // another provider under AI_PROVIDER=fallback (see fallback-provider.ts)
+    // without both providers fighting over one generic AI_API_KEY/AI_MODEL.
+    const apiKey = opts?.apiKey ?? process.env.OPENAI_API_KEY ?? process.env.AI_API_KEY;
     if (!apiKey) {
-      throw new Error("AI_API_KEY is required when AI_PROVIDER=openai.");
+      throw new Error(
+        "OPENAI_API_KEY (or AI_API_KEY) is required when AI_PROVIDER=openai or openai is in AI_FALLBACK_ORDER.",
+      );
     }
     this.client = new OpenAI({ apiKey });
-    this.model = process.env.AI_MODEL ?? "gpt-4o-mini";
+    this.model = opts?.model ?? process.env.OPENAI_MODEL ?? process.env.AI_MODEL ?? "gpt-4o-mini";
   }
 
   async generateStructured(params: GenerateStructuredParams): Promise<GenerateStructuredResult> {

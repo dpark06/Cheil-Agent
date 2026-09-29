@@ -54,6 +54,18 @@ Apple M4 Max / 48GB Mac — comfortably enough hardware for a 7B Q4 model) by ru
   `AI_PROVIDER=ollama` as viable for a free/offline prototype demo, not as a quality bar to judge
   the feature by — `openai`/`anthropic` remain the higher-fidelity options.
 
+**`AI_PROVIDER=fallback`** (`src/lib/ai/providers/fallback-provider.ts`) chains multiple providers
+and uses the first one that actually responds — e.g. `AI_FALLBACK_ORDER=anthropic,openai` tries
+Claude first and only calls OpenAI if Claude's API call itself throws (down, rate-limited, auth
+error). This is availability failover, not a per-call quality comparison — only one provider is
+ever billed per call, whichever succeeds first — and it does not protect against a provider that
+responds but produces bad output (that's what the schema-validation retry loop in `run-stage.ts`
+is for, a separate concern). Each provider in the chain needs its own key/model
+(`ANTHROPIC_API_KEY`/`ANTHROPIC_MODEL`, `OPENAI_API_KEY`/`OPENAI_MODEL`) rather than the generic
+`AI_API_KEY`/`AI_MODEL`, since both need to be independently usable. Verified with a scripted test
+(primary throws, secondary succeeds → fallback result returned; both throw → clear aggregated
+error) but not yet exercised against two real, simultaneously-live API keys.
+
 For `IMAGE`-type changes, the Change Explainer stage (`src/lib/ai/stages/02-change-explainer.ts`) now
 sends the vision model **both** the previous-version and new-version crop of the changed region (via
 `src/lib/ai/tools/get_image_crop.ts`), explicitly labeled, with an instruction to identify what's
