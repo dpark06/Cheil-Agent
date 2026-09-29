@@ -106,11 +106,48 @@ files are stored unencrypted on local disk (the app logs a warning at startup). 
 encrypted with AES-256-GCM in `LocalStorageAdapter` — but this is not a substitute for disk-level
 encryption, KMS-backed key management, or key rotation in a real deployment.
 
-**No actual cloud deployment.** The app is deploy-ready (`.env.example`, `Dockerfile`-free Node
-build via `npm run build && npm start`, background worker as a separate process) but has not been
-deployed anywhere. A real launch needs: a hosting provider with background-job support, a managed
-Postgres instance, object storage (or accept local-disk storage as a permanent constraint), a
-domain, and TLS.
+**Serverless deployment (Vercel + free Postgres) exists as a second, parallel deploy path.**
+The original design assumes a platform that can run `worker.ts` as a genuine long-running process
+(Railway, Render, Fly.io, a VPS) — that remains the more robust option and needs no code changes
+beyond what's already here. But those platforms now require a payment method on file even for
+free-tier usage, which isn't always acceptable for a portfolio/demo deployment. So there's now a
+second path with **zero payment method required anywhere**: Vercel (web app, free Hobby tier) +
+Supabase or Neon (Postgres, free tier) + this repo's own GitHub Actions cron
+(`.github/workflows/process-jobs-cron.yml`, free, no card).
+
+This works by *not* relying on a persistent worker process at all. graphile-worker's `runOnce()`
+(processes everything currently queued, then returns — as opposed to `worker.ts`'s `run()`, which
+polls forever) is called two ways: immediately, via Next.js's `after()`, right after a job is
+enqueued (`src/lib/jobs/queue.ts`) — so on a serverless deploy, work starts right away instead of
+waiting for a cron tick, keeping the live progress-bar UX intact — and periodically, by GitHub
+Actions hitting `/api/cron/process-jobs` (protected by `CRON_SECRET`, constant-time compared) as a
+catch-up sweep in case the immediate trigger gets killed mid-run. `worker.ts` is completely
+unaffected either way and remains the primary path for local dev and for any platform that can run
+it continuously.
+
+**The real constraint this introduces: serverless function time limits.** Vercel's free Hobby plan
+caps functions at 60 seconds regardless of what `maxDuration` a route declares (Pro allows up to
+300s). A comparison with several changes run through a *real* (non-mock) AI provider can take
+longer than that per stage, especially chained across all 4 pipeline stages — a call that gets cut
+off mid-run leaves its job locked until graphile-worker's stale-lock timeout passes, which can take
+a while. `AI_PROVIDER=mock` sidesteps this entirely (each mock call is near-instant) and is the
+practical default for this deploy path; a real provider works but is meaningfully more likely to
+time out on Hobby-tier limits than it would running continuously on Railway/Render/Fly.io.
+
+**File storage is still local disk** (`LocalStorageAdapter`), and Vercel's serverless filesystem is
+ephemeral — uploaded files and generated decks will not persist reliably across deploys/cold starts
+on this path. Fine for a live click-through demo; not fine as a real multi-user deployment. Swapping
+in real object storage (S3-compatible; Supabase itself offers this) is the fix, not yet built.
+
+Verified locally by killing the local worker process entirely, uploading a comparison through the
+real API, and confirming it reached `READY_FOR_REVIEW` purely via the `after()`-triggered sweep —
+and separately confirming `/api/cron/process-jobs` rejects a missing/wrong secret (401) and
+succeeds with the correct one. Not yet verified against an actual Vercel + Supabase/Neon deployment
+end-to-end — that's the next real test once deployed.
+
+A real production launch (as opposed to a free demo) still needs: TLS/domain (Vercel provides
+this), a payment-method-backed Postgres/hosting tier once free-tier limits are exceeded, and real
+object storage regardless of which deploy path is used.
 
 **No legal or compliance documents.** Privacy policy, terms of use, data-processing agreement,
 AI-processing disclosure, subprocessor list, and acceptable-use policy do not exist. None of this

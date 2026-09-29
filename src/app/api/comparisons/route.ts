@@ -11,6 +11,11 @@ import { logAuditEvent } from "@/lib/audit/audit-log";
 import { assertUnderRateLimit, RateLimitExceededError } from "@/lib/security/rate-limit";
 import { LIMITS } from "@/lib/config/limits";
 
+// Bounds how long the after()-triggered immediate job sweep (see
+// queue.ts/run-once.ts) gets to run on a serverless deploy before this
+// function is torn down — see the cron route for the fuller explanation.
+export const maxDuration = 60;
+
 const titleSchema = z.string().trim().min(1).max(200);
 const contextSchema = z.string().trim().max(2000).optional();
 

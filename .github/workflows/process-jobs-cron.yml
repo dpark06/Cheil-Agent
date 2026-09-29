@@ -1,0 +1,33 @@
+name: Process pending jobs (cron)
+
+# Catch-up safety net for the serverless deploy — see src/lib/jobs/run-once.ts
+# and src/app/api/cron/process-jobs/route.ts for why this exists. Most jobs
+# get picked up immediately (an after()-triggered sweep runs right after
+# they're enqueued); this just sweeps up anything that sweep missed, e.g. a
+# serverless function that got killed mid-run.
+#
+# Requires two repo secrets (Settings -> Secrets and variables -> Actions):
+#   APP_URL      the deployed app's base URL, e.g. https://cheil-delta.vercel.app
+#   CRON_SECRET  must match the CRON_SECRET env var set on the deployment
+#
+# GitHub does not guarantee this fires exactly every 5 minutes — scheduled
+# workflows can be delayed under load. That's fine here; it's a safety net,
+# not the primary trigger.
+on:
+  schedule:
+    - cron: "*/5 * * * *"
+  workflow_dispatch: {}
+
+jobs:
+  process:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Hit the process-jobs endpoint
+        run: |
+          if [ -z "${{ secrets.APP_URL }}" ] || [ -z "${{ secrets.CRON_SECRET }}" ]; then
+            echo "APP_URL and/or CRON_SECRET repo secrets are not set yet — skipping." \
+              "Set both under Settings > Secrets and variables > Actions once the app is deployed."
+            exit 0
+          fi
+          curl -sf --max-time 90 \
+            "${{ secrets.APP_URL }}/api/cron/process-jobs?secret=${{ secrets.CRON_SECRET }}"

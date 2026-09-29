@@ -5,6 +5,11 @@ import { getStorageAdapter } from "@/lib/storage/local-storage-adapter";
 import { enqueueJob } from "@/lib/jobs/queue";
 import { logAuditEvent } from "@/lib/audit/audit-log";
 
+// Bounds how long the after()-triggered immediate job sweep (see
+// queue.ts/run-once.ts) gets to run on a serverless deploy before this
+// function is torn down — see the cron route for the fuller explanation.
+export const maxDuration = 60;
+
 async function loadOwnedComparison(comparisonId: string, userId: string, role: string) {
   const comparison = await db.comparison.findUnique({
     where: { id: comparisonId },

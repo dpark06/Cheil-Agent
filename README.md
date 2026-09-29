@@ -108,6 +108,45 @@ version and `fixtures/next.pdf` as the new version. With `AI_PROVIDER=mock` (the
 requires no API key and produces deterministic, context-aware fake explanations — real text and
 image diffs, fake AI judgment — so the whole pipeline is testable offline.
 
+## Deploying (free, no payment method required)
+
+This path runs on Vercel's free Hobby tier + a free-tier Postgres provider + this repo's own
+GitHub Actions cron as a catch-up sweep — no card on file anywhere. See
+[docs/known-gaps.md](docs/known-gaps.md) for how this actually works (there's no long-running
+worker process on this path) and its real limitations (serverless time limits, ephemeral file
+storage). If you'd rather run a real always-on worker process (more robust, but the platforms that
+support it — Railway, Render, Fly.io — now require a payment method even for free-tier usage), skip
+this section and deploy `npm run build && npm start` plus `npm run worker` there instead.
+
+1. **Database**: create a free Postgres instance on [Supabase](https://supabase.com) or
+   [Neon](https://neon.tech) (no card required for either's free tier). Copy the connection string.
+2. **Deploy the app**: import this GitHub repo into [Vercel](https://vercel.com) (free, sign in
+   with GitHub, no card required for Hobby). Set these environment variables in the Vercel project
+   settings:
+   - `DATABASE_URL` — from step 1
+   - `AUTH_SECRET` — generate with `npx auth secret`
+   - `ENCRYPTION_KEY` — generate with `openssl rand -hex 32`
+   - `CRON_SECRET` — any random string; you'll reuse it in step 3
+   - `AI_PROVIDER=mock` (recommended for this path — see known-gaps.md for why a real provider is
+     riskier here specifically)
+   - `APP_URL` — your Vercel deployment URL (fill in after the first deploy, e.g.
+     `https://your-project.vercel.app`)
+3. **Run migrations against the new database** (one-time, from your machine, pointed at the
+   deployed `DATABASE_URL`):
+   ```bash
+   DATABASE_URL="<your-supabase-or-neon-url>" npx prisma migrate deploy
+   ```
+4. **Enable the catch-up cron**: in the GitHub repo, go to Settings → Secrets and variables →
+   Actions, and add two repository secrets:
+   - `APP_URL` — same value as step 2
+   - `CRON_SECRET` — same value as step 2
+
+   `.github/workflows/process-jobs-cron.yml` will start hitting `/api/cron/process-jobs` every ~5
+   minutes automatically — this is only a safety net (see known-gaps.md); most jobs are picked up
+   immediately without waiting for it.
+5. Register the first account at `/register` on your deployed URL — it's automatically granted
+   `ADMIN`, same as local dev.
+
 ## Known gaps
 
 This is a from-scratch build made to run standalone (no cloud storage account, no enterprise SSO,
