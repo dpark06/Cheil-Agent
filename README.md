@@ -8,6 +8,16 @@ The AI never generates the presentation directly, never invents changes on its o
 gets treated as approved until a human confirms it. See [docs/known-gaps.md](docs/known-gaps.md)
 for what's simplified in this build versus a full enterprise deployment, and why.
 
+## Screenshots
+
+All screens below are real captures from a running instance, not mockups.
+
+| | |
+|---|---|
+| ![Login](docs/screenshots/01-login.jpg) Sign in — email/password auth with self-service password reset | ![New comparison](docs/screenshots/02-new-comparison.jpg) Upload two versions of a file to compare |
+| ![Dashboard](docs/screenshots/03-dashboard.jpg) Dashboard — every comparison at a glance | ![Review](docs/screenshots/04-review.jpg) Review — AI-flagged changes, confirmed or corrected by a human before anything ships |
+| ![Live progress](docs/screenshots/05-progress.jpg) Live progress — a real percentage-based bar while the AI works | ![Generated deck](docs/screenshots/06-deck-preview.jpg) Generated deck — branded, versioned, ready to present |
+
 ## How it works
 
 ```
