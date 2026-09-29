@@ -1,0 +1,63 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: cheil_delta
+          POSTGRES_PASSWORD: cheil_delta_ci
+          POSTGRES_DB: cheil_delta
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U cheil_delta"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    env:
+      DATABASE_URL: postgresql://cheil_delta:cheil_delta_ci@localhost:5432/cheil_delta
+      AUTH_SECRET: ci-only-secret-not-for-production-use-000000000000
+      AI_PROVIDER: mock
+      STORAGE_ROOT: ./storage
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Prisma generate
+        run: npx prisma generate
+
+      - name: Apply migrations
+        run: npx prisma migrate deploy
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Build
+        run: npm run build
+
+      - name: Generate fixture PDFs
+        run: npm run seed:fixtures
+
+      - name: Presentation-generation smoke test
+        run: npx tsx scripts/ci-smoke-test.ts

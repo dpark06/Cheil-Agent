@@ -1,0 +1,299 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ---------- Auth ----------
+
+enum UserRole {
+  ADMIN
+  REVIEWER
+}
+
+model User {
+  id            String    @id @default(cuid())
+  email         String    @unique
+  passwordHash  String
+  name          String?
+  role          UserRole  @default(REVIEWER)
+  createdAt     DateTime  @default(now())
+  deactivatedAt DateTime?
+
+  accounts            Account[]
+  sessions            Session[]
+  comparisons         Comparison[]
+  auditEvents         AuditEvent[]
+  passwordResetTokens PasswordResetToken[]
+  deckVersions        DeckVersion[]
+}
+
+model Account {
+  id                String  @id @default(cuid())
+  userId            String
+  type              String
+  provider          String
+  providerAccountId String
+  refresh_token     String? @db.Text
+  access_token      String? @db.Text
+  expires_at        Int?
+  token_type        String?
+  scope             String?
+  id_token          String? @db.Text
+  session_state     String?
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([provider, providerAccountId])
+}
+
+model Session {
+  id           String   @id @default(cuid())
+  sessionToken String   @unique
+  userId       String
+  expires      DateTime
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model VerificationToken {
+  identifier String
+  token      String   @unique
+  expires    DateTime
+
+  @@unique([identifier, token])
+}
+
+model PasswordResetToken {
+  id        String    @id @default(cuid())
+  userId    String
+  // SHA-256 hash of the raw token — the raw value only ever exists in the
+  // emailed link, never stored, so a DB leak alone can't be used to reset
+  // accounts.
+  tokenHash String    @unique
+  expiresAt DateTime
+  usedAt    DateTime?
+  createdAt DateTime  @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+}
+
+// ---------- Core domain ----------
+
+enum ComparisonStatus {
+  UPLOADING
+  PROCESSING
+  DIFFED
+  AI_PROCESSING
+  READY_FOR_REVIEW
+  APPROVED
+  GENERATING_DECK
+  COMPLETE
+  FAILED
+}
+
+model Comparison {
+  id             String           @id @default(cuid())
+  ownerId        String
+  title          String
+  status         ComparisonStatus @default(UPLOADING)
+  context        String?          @db.Text
+  tokenCostCents Int              @default(0)
+  errorMessage   String?
+  /// Coarse progress marker while status = GENERATING_DECK (e.g. "CALLING_AI"),
+  /// so the UI can show which phase is running instead of a bare status label.
+  /// Cleared (null) once generation finishes, succeeds or fails.
+  deckGenerationStage String?
+  /// "N of M" progress within the current long-running phase (diff/render
+  /// loop during PROCESSING, per-change AI loop during AI_PROCESSING) — lets
+  /// the status page show a real filling bar instead of an indeterminate
+  /// one. Both null when not in a countable phase.
+  processedCount Int?
+  totalCount     Int?
+  createdAt      DateTime         @default(now())
+  updatedAt      DateTime         @updatedAt
+
+  owner              User                @relation(fields: [ownerId], references: [id])
+  fileAssets         FileAsset[]
+  detectedChanges    DetectedChange[]
+  relationshipGroups RelationshipGroup[]
+  presentationSession PresentationSession?
+  deckVersions       DeckVersion[]
+  auditEvents        AuditEvent[]
+  jobRuns            JobRun[]
+
+  @@index([ownerId])
+}
+
+enum FileRole {
+  PREVIOUS
+  NEW
+}
+
+enum ScanStatus {
+  PENDING
+  CLEAN
+  REJECTED
+}
+
+model FileAsset {
+  id             String     @id @default(cuid())
+  comparisonId   String
+  role           FileRole
+  originalName   String
+  mimeType       String
+  sizeBytes      Int
+  storagePath    String
+  pageCount      Int?
+  checksumSha256 String
+  scanStatus     ScanStatus @default(PENDING)
+  createdAt      DateTime   @default(now())
+
+  comparison Comparison      @relation(fields: [comparisonId], references: [id], onDelete: Cascade)
+  pages      ExtractedPage[]
+
+  @@index([comparisonId])
+}
+
+model ExtractedPage {
+  id                String  @id @default(cuid())
+  fileAssetId       String
+  pageNumber        Int
+  renderedImagePath String?
+  extractedText     String? @db.Text
+  ocrText           String? @db.Text
+  usedOcr           Boolean @default(false)
+
+  fileAsset FileAsset @relation(fields: [fileAssetId], references: [id], onDelete: Cascade)
+
+  @@unique([fileAssetId, pageNumber])
+}
+
+enum ChangeType {
+  TEXT
+  IMAGE
+  LAYOUT
+  COLOR
+  ADDED
+  REMOVED
+}
+
+enum ReviewStatus {
+  PENDING
+  CONFIRMED
+  EDITED
+  REJECTED
+  MINOR
+}
+
+model DetectedChange {
+  id                 String       @id @default(cuid())
+  comparisonId       String
+  changeType         ChangeType
+  sourceRef          Json
+  rawDiffData        Json
+  classifierOutput   Json?
+  explainerOutput    Json?
+  reviewStatus       ReviewStatus @default(PENDING)
+  humanNote          String?
+  editedExplanation  String?
+  relationshipGroupId String?
+  createdAt          DateTime     @default(now())
+  updatedAt          DateTime     @updatedAt
+
+  comparison        Comparison         @relation(fields: [comparisonId], references: [id], onDelete: Cascade)
+  relationshipGroup RelationshipGroup? @relation(fields: [relationshipGroupId], references: [id])
+
+  @@index([comparisonId])
+  @@index([comparisonId, reviewStatus])
+}
+
+model RelationshipGroup {
+  id                 String   @id @default(cuid())
+  comparisonId       String
+  relationshipOutput Json
+  createdAt          DateTime @default(now())
+
+  comparison Comparison       @relation(fields: [comparisonId], references: [id], onDelete: Cascade)
+  changes    DetectedChange[]
+
+  @@index([comparisonId])
+}
+
+model PresentationSession {
+  id               String    @id @default(cuid())
+  comparisonId     String    @unique
+  deckPlanJson     Json
+  pptxStoragePath  String?
+  slideCount       Int?
+  generatedAt      DateTime?
+  downloadCount    Int       @default(0)
+  createdAt        DateTime  @default(now())
+
+  comparison Comparison @relation(fields: [comparisonId], references: [id], onDelete: Cascade)
+}
+
+/// Every generated .pptx, kept permanently (own storage key, never
+/// overwritten) so regenerating after a post-completion edit doesn't
+/// destroy the previous deck. PresentationSession still tracks the
+/// *current* deck (used by the existing download route); this is the
+/// full history behind it.
+model DeckVersion {
+  id                String   @id @default(cuid())
+  comparisonId      String
+  versionNumber     Int
+  deckPlanJson      Json
+  pptxStoragePath   String
+  slideCount        Int
+  generatedByUserId String?
+  generatedAt       DateTime @default(now())
+
+  comparison  Comparison @relation(fields: [comparisonId], references: [id], onDelete: Cascade)
+  generatedBy User?      @relation(fields: [generatedByUserId], references: [id])
+
+  @@unique([comparisonId, versionNumber])
+  @@index([comparisonId])
+}
+
+model AuditEvent {
+  id           String   @id @default(cuid())
+  userId       String?
+  comparisonId String?
+  eventType    String
+  payload      Json?
+  createdAt    DateTime @default(now())
+
+  user       User?       @relation(fields: [userId], references: [id])
+  comparison Comparison? @relation(fields: [comparisonId], references: [id])
+
+  @@index([comparisonId])
+  @@index([eventType])
+}
+
+enum JobStatus {
+  QUEUED
+  RUNNING
+  SUCCEEDED
+  FAILED
+}
+
+model JobRun {
+  id             String    @id @default(cuid())
+  taskIdentifier String
+  comparisonId   String?
+  status         JobStatus @default(QUEUED)
+  attempts       Int       @default(0)
+  lastError      String?
+  startedAt      DateTime?
+  finishedAt     DateTime?
+  createdAt      DateTime  @default(now())
+
+  comparison Comparison? @relation(fields: [comparisonId], references: [id])
+
+  @@index([comparisonId])
+}

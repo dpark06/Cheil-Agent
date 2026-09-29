@@ -1,0 +1,14 @@
+node_modules
+.next
+.env
+.env.local
+storage/
+*.log
+.DS_Store
+dist
+coverage
+tsconfig.tsbuildinfo
+
+# Internal/proprietary — not for public distribution
+Brand Guideline/
+Typography/
